@@ -1,0 +1,20 @@
+{
+  "program": "REPLACE_WITH_AUTHORIZED_PROGRAM",
+  "scope": {
+    "include": [
+      "example.com",
+      "*.example.com"
+    ],
+    "exclude": [
+      "admin.example.com",
+      "internal.example.com"
+    ]
+  },
+  "rules": {
+    "passive_discovery": true,
+    "active_http": false,
+    "researcher_approved": false,
+    "max_requests_per_second": 1,
+    "max_targets": 100
+  }
+}
