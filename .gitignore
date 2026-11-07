@@ -7,3 +7,5 @@ __pycache__/
 results.json
 .pytest_cache/
 .DS_Store
+
+state/
