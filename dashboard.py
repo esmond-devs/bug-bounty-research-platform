@@ -2,7 +2,7 @@
 import argparse
 import html
 import secrets
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs
 from bbplatform.core import Policy, PolicyError, normalize_host
 from bbplatform.discovery import certificate_transparency
@@ -107,8 +107,7 @@ def serve(policy, port=8765, db_path="state/approvals.sqlite3"):
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    server.daemon_threads = True
+    server = HTTPServer(("127.0.0.1", port), Handler)
     print(f"Dashboard: http://127.0.0.1:{port}")
     try:
         server.serve_forever()
