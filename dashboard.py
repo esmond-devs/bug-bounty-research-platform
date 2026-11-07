@@ -1,74 +1,124 @@
-"""Local-only interactive dashboard; never exposes an internet-facing scanner."""
+"""Local-only researcher approval dashboard and passive CT discovery."""
 import argparse
 import html
-import json
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs
 from bbplatform.core import Policy, PolicyError, normalize_host
 from bbplatform.discovery import certificate_transparency
+from bbplatform.approvals import connect, request, decide, requests, events
 
-def render(policy, records, notice=""):
-    rows = "".join(
-        "<tr><td>" + html.escape(r["host"]) + "</td><td>" +
-        html.escape(r["scope"]) + "</td><td>" +
-        html.escape(r.get("source", "manual")) + "</td></tr>"
-        for r in records[:500])
+def esc(x):
+    return html.escape(str(x), quote=True)
+
+def render(policy, records, db, csrf, notice=""):
+    discovered = "".join("<tr><td>" + esc(r["host"]) + "</td><td>" +
+                         esc(r["scope"]) + "</td><td>" + esc(r.get("source", "manual")) +
+                         "</td></tr>" for r in records[:500])
+    approvals = ""
+    for ident, host, reason, requester, status, created, reviewer, expires in requests(db):
+        controls = ""
+        if status == "pending":
+            controls = ('<form method="post" action="/decide"><input type="hidden" name="csrf" value="' +
+                        esc(csrf) + '"><input type="hidden" name="id" value="' + esc(ident) +
+                        '"><input name="reviewer" required placeholder="Reviewer identity">' +
+                        '<button name="decision" value="approve">Approve 24h</button>' +
+                        '<button name="decision" value="reject">Reject</button></form>')
+        approvals += "<tr><td>" + esc(ident) + "</td><td>" + esc(host) + "</td><td>" + esc(requester) + "</td><td>" + esc(reason) + "</td><td>" + esc(status) + "</td><td>" + controls + "</td></tr>"
+    audit = "".join("<tr>" + "".join("<td>" + esc(value) + "</td>" for value in event) + "</tr>"
+                    for event in events(db))
     return """<!doctype html><html lang="en"><meta charset="utf-8">
-<title>Scope-First Research</title><meta name="viewport" content="width=device-width">
-<style>body{font:16px system-ui;background:#0b1220;color:#e5e7eb;max-width:1050px;margin:35px auto;padding:20px}
-header{display:flex;justify-content:space-between;align-items:center}h1{font-size:28px}
-section{background:#182235;padding:22px;border-radius:14px;margin:18px 0}
-input,button{font:inherit;padding:11px;border-radius:8px;border:1px solid #64748b}
-input{background:#0b1220;color:white;min-width:240px}button{background:#38bdf8;color:#06111c;cursor:pointer}
-table{width:100%;border-collapse:collapse}td,th{padding:10px;text-align:left;border-bottom:1px solid #334155}
-small{color:#9ca3af}</style><header><h1>Scope-First Research</h1><span>Local dashboard • v0.2</span></header>
-<section><h2>Engagement policy</h2><p>Allowed: """ + html.escape(", ".join(policy.includes)) + """</p>
-<p>Excluded: """ + html.escape(", ".join(policy.excludes) or "None") + """</p>
-<small>Passive CT discovery contacts a public CT index, not target hosts. Candidates are not authorization for active checks.</small></section>
-<section><h2>Passive discovery</h2><form method="post" action="/discover">
-<label for="domain">Authorized root domain</label><p><input id="domain" name="domain" required placeholder="example.com">
-<button type="submit">Discover CT records</button></p></form><p>""" + html.escape(notice) + """</p></section>
-<section><h2>Discovered assets</h2><p>""" + str(len(records)) + """ candidate(s) shown (maximum 500)</p>
-<table><thead><tr><th>Host</th><th>Scope decision</th><th>Source</th></tr></thead><tbody>""" + rows + """</tbody></table></section>
-</html>"""
+<meta name="viewport" content="width=device-width"><title>Scope Research • Approvals</title>
+<style>body{font:15px system-ui;background:#0b1220;color:#e5e7eb;max-width:1200px;margin:28px auto;padding:18px}
+header{display:flex;justify-content:space-between;align-items:center}
+section{background:#182235;padding:20px;border-radius:12px;margin:16px 0;overflow:auto}
+input,button{font:inherit;padding:9px;margin:3px;border-radius:7px;border:1px solid #64748b}
+input{background:#0b1220;color:#fff}button{background:#38bdf8;color:#06111c;cursor:pointer}
+table{width:100%;border-collapse:collapse}td,th{padding:9px;text-align:left;border-bottom:1px solid #334155}
+small{color:#9ca3af}</style>
+<header><h1>Scope-First Research</h1><span>Local dashboard • v0.3</span></header>
+<section><h2>Program scope</h2><p>Included: """ + esc(", ".join(policy.includes)) + """</p>
+<p>Excluded: """ + esc(", ".join(policy.excludes)) + """</p>
+<small>Approval is not proof of program permission or third-party infrastructure ownership.</small></section>
+<section><h2>Passive discovery</h2><form action="/discover" method="post">
+<input type="hidden" name="csrf" value="""" + esc(csrf) + """">
+<input name="domain" required placeholder="Authorized root domain">
+<button>Discover CT records</button></form><p>""" + esc(notice) + """</p>
+<table><tr><th>Host</th><th>Scope</th><th>Source</th></tr>""" + discovered + """</table></section>
+<section><h2>Request an active metadata check</h2><form action="/request" method="post">
+<input type="hidden" name="csrf" value="""" + esc(csrf) + """">
+<input name="host" required placeholder="Exact hostname">
+<input name="requester" required placeholder="Requester identity">
+<input name="reason" required maxlength="500" placeholder="Program authorization / justification">
+<button>Submit request</button></form>
+<small>Requests do not run scans. An independent reviewer label is required, but identities are not authenticated in this MVP.</small></section>
+<section><h2>Approval queue</h2><table><tr><th>ID</th><th>Host</th><th>Requester</th><th>Justification</th><th>Status</th><th>Review</th></tr>""" + approvals + """</table></section>
+<section><h2>Audit trail</h2><table><tr><th>UTC</th><th>Actor</th><th>Event</th><th>Request ID</th><th>Details</th></tr>""" + audit + """</table></section></html>"""
 
-def serve(policy, host="127.0.0.1", port=8765):
+def serve(policy, port=8765, db_path="state/approvals.sqlite3"):
+    db = connect(db_path)
+    csrf = secrets.token_urlsafe(32)
     class Handler(BaseHTTPRequestHandler):
         records = []
         notice = ""
         def do_GET(self):
             if self.path != "/":
                 self.send_error(404); return
-            data = render(policy, self.records, self.notice).encode()
+            data = render(policy, self.records, db, csrf, self.notice).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
             self.send_header("Content-Length", str(len(data)))
-            self.end_headers(); self.wfile.write(data)
+            self.end_headers()
+            self.wfile.write(data)
         def do_POST(self):
-            if self.path != "/discover":
+            if self.path not in ("/discover", "/request", "/decide"):
                 self.send_error(404); return
-            size = int(self.headers.get("Content-Length", "0"))
+            origin = self.headers.get("Origin")
+            if origin and origin not in (f"http://127.0.0.1:{port}", f"http://localhost:{port}"):
+                self.send_error(403); return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                self.send_error(400); return
             if not 0 < size <= 4096:
                 self.send_error(413); return
-            form = parse_qs(self.rfile.read(size).decode())
             try:
-                domain = normalize_host(form.get("domain", [""])[0])
-                policy.require(domain)
-                self.__class__.records = certificate_transparency(domain, policy)
-                self.__class__.notice = "Passive discovery completed."
-            except (PolicyError, RuntimeError, ValueError, OSError) as exc:
-                self.__class__.notice = "Discovery rejected or failed: " + str(exc)
+                form = parse_qs(self.rfile.read(size).decode("utf-8"))
+                val = lambda key: form.get(key, [""])[0]
+                if not secrets.compare_digest(val("csrf"), csrf):
+                    self.send_error(403); return
+                if self.path == "/discover":
+                    domain = policy.require(normalize_host(val("domain")))
+                    self.__class__.records = certificate_transparency(domain, policy)
+                    self.__class__.notice = "Passive discovery complete."
+                elif self.path == "/request":
+                    ident = request(db, policy, val("host"), val("reason"), val("requester"))
+                    self.__class__.notice = f"Approval request #{ident} queued."
+                else:
+                    if val("decision") not in ("approve", "reject"):
+                        raise PolicyError("Invalid decision")
+                    decide(db, policy, int(val("id")), val("reviewer"), val("decision") == "approve")
+                    self.__class__.notice = "Decision recorded."
+            except (PolicyError, ValueError, RuntimeError, OSError) as exc:
+                self.__class__.notice = "Action denied or failed: " + str(exc)
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.daemon_threads = True
+    print(f"Dashboard: http://127.0.0.1:{port}")
+    try:
+        server.serve_forever()
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", required=True)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--approval-db", default="state/approvals.sqlite3")
     args = parser.parse_args()
-    print("Dashboard: http://127.0.0.1:" + str(args.port))
-    serve(Policy.from_file(args.policy), port=args.port)
+    serve(Policy.from_file(args.policy), args.port, args.approval_db)
