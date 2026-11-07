@@ -37,6 +37,7 @@ class Policy:
     rps: float = 1.0
     max_targets: int = 100
     authorized_ip_cidrs: tuple = ()
+    authorized_cname_suffixes: tuple = ()
 
     @classmethod
     def from_file(cls, path):
@@ -48,11 +49,14 @@ class Policy:
                   bool(rules.get("researcher_approved", False)),
                   float(rules.get("max_requests_per_second", 1)),
                   int(rules.get("max_targets", 100)),
-                  tuple(rules.get("authorized_ip_cidrs", [])))
+                  tuple(rules.get("authorized_ip_cidrs", [])),
+                  tuple(rules.get("authorized_cname_suffixes", [])))
         if not obj.includes or obj.rps <= 0 or not 1 <= obj.max_targets <= 10000:
             raise PolicyError("Invalid policy")
         for p in obj.includes + obj.excludes:
             normalize_host(p[2:] if p.startswith("*.") else p)
+        for suffix in obj.authorized_cname_suffixes:
+            normalize_host(suffix[2:] if suffix.startswith("*.") else suffix)
         for cidr in obj.authorized_ip_cidrs:
             network = ipaddress.ip_network(cidr, strict=False)
             if not network.is_global:
@@ -86,10 +90,16 @@ def recommend(headers):
              "why": v, "next_step": "Review applicability; absence alone is not a vulnerability."}
             for k, v in descriptions.items() if k not in h]
 
-def check_https(host, policy):
+def check_https(host, policy, approval_db=None, approval_id=None):
     host = policy.require(host, active=True)
-    from .guard import authorized_addresses
-    ip = authorized_addresses(public_ips(host), policy.authorized_ip_cidrs)[0]
+    from .approvals import require_approval, audit_event
+    from .ownership import check_ownership
+    if approval_db is None or approval_id is None:
+        raise PolicyError("Active check requires a persistent approval record")
+    require_approval(approval_db, policy, approval_id, host)
+    evidence = check_ownership(host, policy, public_ips(host))
+    ip = evidence["approved_ips"][0]
+    audit_event(approval_db, "cli", "active_probe_started", approval_id, host)
     destination = "[" + ip + "]" if ":" in ip else ip
     cmd = ["curl", "--silent", "--show-error", "--head", "--http1.1",
            "--proto", "=https", "--max-redirs", "0", "--max-time", "10",
@@ -111,9 +121,10 @@ def check_https(host, policy):
             k, v = line.split(":", 1)
             headers[k.strip()] = v.strip()
     return {"status": int(marker.group(1)), "ip": ip, "headers": headers,
-            "recommendations": recommend(headers), "note": "HEAD / only; no redirects followed"}
+            "recommendations": recommend(headers), "ownership_evidence": evidence,
+            "note": "HEAD / only; no redirects followed"}
 
-def run(policy, targets, active=False):
+def run(policy, targets, active=False, approval_db=None, approval_id=None):
     if active and not (policy.active_http and policy.approved):
         raise PolicyError("Active checks require explicit permission and approval")
     seen = set()
@@ -135,7 +146,7 @@ def run(policy, targets, active=False):
                 if wait:
                     time.sleep(wait)
                 last = time.monotonic()
-                item["http"] = check_https(host, policy)
+                item["http"] = check_https(host, policy, approval_db, approval_id)
         except (PolicyError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
             item = {"host": target, "scope": "rejected_or_failed", "reason": str(exc)}
         results.append(item)
