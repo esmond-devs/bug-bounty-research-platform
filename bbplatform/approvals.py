@@ -28,7 +28,8 @@ def connect(path):
 def fingerprint(policy):
     data = {"include": policy.includes, "exclude": policy.excludes,
             "active_http": policy.active_http, "approved": policy.approved,
-            "cidrs": policy.authorized_ip_cidrs}
+            "cidrs": policy.authorized_ip_cidrs,
+            "cname_suffixes": policy.authorized_cname_suffixes}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 def request(db, policy, host, reason, requester):
