@@ -1,6 +1,6 @@
 # Bug Bounty Security Research Platform
 
-**Scope-first authorized reconnaissance and educational security research — Python CLI + local dashboard MVP (v0.2).**
+**Scope-first authorized reconnaissance and educational security research — Python CLI + local dashboard MVP (v0.3).**
 
 This repository contains an early prototype, not yet a production-ready bug bounty automation service. It validates user-provided target hostnames against explicit include/exclude policies and optionally performs approved, low-impact HTTPS HEAD checks. Results are saved as JSON, with explanations for missing HTTP security headers.
 
@@ -14,10 +14,14 @@ Open http://127.0.0.1:8765. Enter an authorized root domain and select **Discove
 
 ## Stronger active-check requirements
 
-Active checks now additionally require `authorized_ip_cidrs` in policy rules, containing explicitly approved **public** destination networks. Example: `"authorized_ip_cidrs": ["203.0.113.0/24"]` is documentation-only (reserved IPs will be rejected). Do not use a broad cloud provider range merely because a hostname resolves into it. Without approved networks, active checks fail closed. This does not replace full CNAME-chain and infrastructure ownership verification.
+Active checks now additionally require `authorized_ip_cidrs` in policy rules, containing explicitly approved **public** destination networks. Example: `"authorized_ip_cidrs": ["203.0.113.0/24"]` is documentation-only (reserved IPs will be rejected). Do not use a broad cloud provider range merely because a hostname resolves into it. Without approved networks, active checks fail closed. The new ownership guard verifies every DNS CNAME hop against explicit allowed suffixes and requires every resolved IP to match approved networks. This is **policy attestation**, not independent legal ownership verification.
+
+## Researcher approval workflow
+
+The local dashboard now includes an **approval queue**, approve/reject controls, and a SQLite audit timeline. Requesters provide an exact hostname and justification; a different reviewer label must approve the request, which expires after 24 hours. The CLI requires `--approval-db` and `--approval-id` in active mode. Approval records are bound to a fingerprint of the program policy. Reviewer names are **not authenticated identities** in this MVP. See [approval and infrastructure documentation](docs/APPROVALS.md).
 
 ## Requirements
-Python 3.10+; curl (for optional HTTPS checks).
+Python 3.10+; curl (for optional HTTPS checks). Install `pip install -r requirements.txt` for CNAME validation.
 
 ## Quick start
 ```bash
@@ -27,7 +31,7 @@ python cli.py --policy examples/policy.json --targets examples/targets.txt --out
 
 This default run **does not send network requests**. Review the output and scope decisions before doing any active work.
 
-To enable an authorized HTTPS check, edit a copy of the policy to set `active_http` and `researcher_approved` to `true`, after independently verifying the program permits automation and the specific target. Then add `--active` to the CLI. The checker only sends HTTPS HEAD to the root path, pins the resolved public IP, verifies TLS, and does not follow redirects. A scoped hostname is **not** sufficient proof of permission to probe third-party infrastructure.
+To enable an authorized HTTPS check, edit a copy of the policy to set `active_http` and `researcher_approved` to `true`, after independently verifying the program permits automation and the specific target. Then add `--active --approval-db state/approvals.sqlite3 --approval-id <approved-request-id>` to the CLI. The checker only sends HTTPS HEAD to the root path, pins the resolved public IP, verifies TLS, and does not follow redirects. A scoped hostname is **not** sufficient proof of permission to probe third-party infrastructure.
 
 ## Documentation
 - [Architecture](docs/ARCHITECTURE.md)
@@ -43,6 +47,6 @@ To enable an authorized HTTPS check, edit a copy of the policy to set `active_ht
 - Evidence-based educational security-header recommendations
 
 ## Not yet implemented
-Additional passive discovery sources, CNAME/third-party ownership checks, robust DNS rebinding defenses, distributed quotas, durable audit logs, UI, API, database, LLM recommendation engine, and advanced tool orchestration.
+Additional passive discovery sources, independent third-party ownership verification, authenticated reviewer identities, tamper-evident audit storage, robust DNS rebinding defenses, distributed quotas, public multi-user UI, API, LLM recommendation engine, and advanced tool orchestration.
 
 **Do not use this prototype against targets without explicit authorization.** Missing headers are not confirmed vulnerabilities. Avoid committing real target lists, tokens, or sensitive findings.
