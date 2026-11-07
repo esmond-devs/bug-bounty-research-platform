@@ -36,6 +36,7 @@ class Policy:
     approved: bool = False
     rps: float = 1.0
     max_targets: int = 100
+    authorized_ip_cidrs: tuple = ()
 
     @classmethod
     def from_file(cls, path):
@@ -46,11 +47,16 @@ class Policy:
                   bool(rules.get("active_http", False)),
                   bool(rules.get("researcher_approved", False)),
                   float(rules.get("max_requests_per_second", 1)),
-                  int(rules.get("max_targets", 100)))
+                  int(rules.get("max_targets", 100)),
+                  tuple(rules.get("authorized_ip_cidrs", [])))
         if not obj.includes or obj.rps <= 0 or not 1 <= obj.max_targets <= 10000:
             raise PolicyError("Invalid policy")
         for p in obj.includes + obj.excludes:
             normalize_host(p[2:] if p.startswith("*.") else p)
+        for cidr in obj.authorized_ip_cidrs:
+            network = ipaddress.ip_network(cidr, strict=False)
+            if not network.is_global:
+                raise PolicyError("Approved CIDR must be public")
         return obj
 
     def require(self, hostname, active=False):
@@ -82,7 +88,8 @@ def recommend(headers):
 
 def check_https(host, policy):
     host = policy.require(host, active=True)
-    ip = public_ips(host)[0]
+    from .guard import authorized_addresses
+    ip = authorized_addresses(public_ips(host), policy.authorized_ip_cidrs)[0]
     destination = "[" + ip + "]" if ":" in ip else ip
     cmd = ["curl", "--silent", "--show-error", "--head", "--http1.1",
            "--proto", "=https", "--max-redirs", "0", "--max-time", "10",
