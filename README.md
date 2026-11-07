@@ -1,6 +1,6 @@
 # Bug Bounty Security Research Platform
 
-**Scope-first authorized reconnaissance and educational security research — Python CLI + local dashboard MVP (v0.3).**
+**Scope-first authorized reconnaissance and educational security research — Python CLI + local dashboard MVP (v0.4).**
 
 This repository contains an early prototype, not yet a production-ready bug bounty automation service. It validates user-provided target hostnames against explicit include/exclude policies and optionally performs approved, low-impact HTTPS HEAD checks. Results are saved as JSON, with explanations for missing HTTP security headers.
 
@@ -16,9 +16,13 @@ Open http://127.0.0.1:8765. Enter an authorized root domain and select **Discove
 
 Active checks now additionally require `authorized_ip_cidrs` in policy rules, containing explicitly approved **public** destination networks. Example: `"authorized_ip_cidrs": ["203.0.113.0/24"]` is documentation-only (reserved IPs will be rejected). Do not use a broad cloud provider range merely because a hostname resolves into it. Without approved networks, active checks fail closed. The new ownership guard verifies every DNS CNAME hop against explicit allowed suffixes and requires every resolved IP to match approved networks. This is **policy attestation**, not independent legal ownership verification.
 
+## Authenticated accounts, evidence and audit integrity
+
+Create local researcher and reviewer accounts with `python manage_users.py --username researcher1 --role researcher` and `python manage_users.py --username reviewer1 --role reviewer` (password prompts). Dashboard sign-in is required; role-based review actions use the authenticated account. Evidence records require an independent review and expire. Selected security events are recorded in a hash-linked audit chain; **external anchoring is required for tamper-evidence against database administrators**. See [identity, evidence and audit guide](docs/IDENTITY_AND_EVIDENCE.md).
+
 ## Researcher approval workflow
 
-The local dashboard now includes an **approval queue**, approve/reject controls, and a SQLite audit timeline. Requesters provide an exact hostname and justification; a different reviewer label must approve the request, which expires after 24 hours. The CLI requires `--approval-db` and `--approval-id` in active mode. Approval records are bound to a fingerprint of the program policy. Reviewer names are **not authenticated identities** in this MVP. See [approval and infrastructure documentation](docs/APPROVALS.md).
+The local dashboard now includes an **approval queue**, approve/reject controls, and a SQLite audit timeline. Requesters provide an exact hostname and justification; a different reviewer label must approve the request, which expires after 24 hours. The CLI requires `--approval-db` and `--approval-id` in active mode. Approval records are bound to a fingerprint of the program policy. Reviewer actions now require a locally authenticated reviewer or admin account. This does not provide production SSO/MFA. See [approval and infrastructure documentation](docs/APPROVALS.md).
 
 ## Requirements
 Python 3.10+; curl (for optional HTTPS checks). Install `pip install -r requirements.txt` for CNAME validation.
