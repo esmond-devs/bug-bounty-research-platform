@@ -26,7 +26,7 @@ def render(policy, records, db, csrf, notice="", user=None):
         if status == "pending":
             controls = ('<form method="post" action="/decide"><input type="hidden" name="csrf" value="' +
                         esc(csrf) + '"><input type="hidden" name="id" value="' + esc(ident) +
-                        '"><input name="reviewer" required placeholder="Reviewer identity">' +
+                        '">' +
                         '<button name="decision" value="approve">Approve 24h</button>' +
                         '<button name="decision" value="reject">Reject</button></form>')
         approvals += "<tr><td>" + esc(ident) + "</td><td>" + esc(host) + "</td><td>" + esc(requester) + "</td><td>" + esc(reason) + "</td><td>" + esc(status) + "</td><td>" + controls + "</td></tr>"
@@ -46,19 +46,19 @@ small{color:#9ca3af}</style>
 <p>Excluded: """ + esc(", ".join(policy.excludes)) + """</p>
 <small>Approval is not proof of program permission or third-party infrastructure ownership.</small></section>
 <section><h2>Passive discovery</h2><form action="/discover" method="post">
-<input type="hidden" name="csrf" value="""" + esc(csrf) + """">
+<input type="hidden" name="csrf" value='""" + esc(csrf) + """'>
 <input name="domain" required placeholder="Authorized root domain">
 <button>Discover CT records</button></form><p>""" + esc(notice) + """</p>
 <table><tr><th>Host</th><th>Scope</th><th>Source</th></tr>""" + discovered + """</table></section>
 <section><h2>Request an active metadata check</h2><form action="/request" method="post">
-<input type="hidden" name="csrf" value="""" + esc(csrf) + """">
+<input type="hidden" name="csrf" value='""" + esc(csrf) + """'>
 <input name="host" required placeholder="Exact hostname">
-<input name="requester" required placeholder="Requester identity">
+
 <input name="reason" required maxlength="500" placeholder="Program authorization / justification">
 <button>Submit request</button></form>
-<small>Requests do not run scans. An independent reviewer label is required, but identities are not authenticated in this MVP.</small></section>
+<small>Requests do not run scans. An independent reviewer label is required, but reviewers must use separate authenticated accounts.</small></section>
 <section><h2>Approval queue</h2><table><tr><th>ID</th><th>Host</th><th>Requester</th><th>Justification</th><th>Status</th><th>Review</th></tr>""" + approvals + """</table></section>
-<section><h2>Infrastructure evidence</h2><form action="/evidence" method="post"><input type="hidden" name="csrf" value=\"""" + esc(csrf) + """\"><input name="host" required placeholder="Exact hostname"><input name="program" required placeholder="Program identifier"><input name="reference" required placeholder="Authorization reference URL or document ID"><button>Submit evidence</button></form><p>Network and CNAME attestations are copied from the active policy; reviewers must independently verify authorization.</p><table><tr><th>ID</th><th>Host</th><th>Program</th><th>Reference</th><th>Status</th><th>Review</th></tr>""" + "".join("<tr><td>"+esc(x[0])+"</td><td>"+esc(x[1])+"</td><td>"+esc(x[2])+"</td><td>"+esc(x[3])+"</td><td>"+esc(x[4])+"</td><td><form method=post action=/review-evidence><input type=hidden name=csrf value="+esc(csrf)+"><input type=hidden name=id value="+esc(x[0])+"><button name=decision value=approve>Verify 24h</button><button name=decision value=reject>Reject</button></form></td></tr>" for x in db.execute("SELECT id,host,program,reference,status FROM ownership_evidence ORDER BY id DESC LIMIT 100")) + """</table></section><section><h2>Audit trail</h2><table><tr><th>UTC</th><th>Actor</th><th>Event</th><th>Request ID</th><th>Details</th></tr>""" + audit + """</table></section></html>"""
+<section><h2>Infrastructure evidence</h2><form action="/evidence" method="post"><input type="hidden" name="csrf" value='""" + esc(csrf) + """'><input name="host" required placeholder="Exact hostname"><input name="program" required placeholder="Program identifier"><input name="reference" required placeholder="Authorization reference URL or document ID"><button>Submit evidence</button></form><p>Network and CNAME attestations are copied from the active policy; reviewers must independently verify authorization.</p><table><tr><th>ID</th><th>Host</th><th>Program</th><th>Reference</th><th>Status</th><th>Review</th></tr>""" + "".join("<tr><td>"+esc(x[0])+"</td><td>"+esc(x[1])+"</td><td>"+esc(x[2])+"</td><td>"+esc(x[3])+"</td><td>"+esc(x[4])+"</td><td><form method=post action=/review-evidence><input type=hidden name=csrf value="+esc(csrf)+"><input type=hidden name=id value="+esc(x[0])+"><button name=decision value=approve>Verify 24h</button><button name=decision value=reject>Reject</button></form></td></tr>" for x in db.execute("SELECT id,host,program,reference,status FROM ownership_evidence ORDER BY id DESC LIMIT 100")) + """</table></section><section><h2>Audit trail</h2><table><tr><th>UTC</th><th>Actor</th><th>Event</th><th>Request ID</th><th>Details</th></tr>""" + audit + """</table></section></html>"""
 
 def serve(policy, port=8765, db_path="state/approvals.sqlite3"):
     db = connect(db_path)
