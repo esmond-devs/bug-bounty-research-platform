@@ -19,6 +19,15 @@ try:
     db = connect(args.approval_db) if args.active else None
     if args.active and args.approval_id is None:
         raise PolicyError("--approval-id required for active checks")
+    if args.active:
+        from bbplatform.evidence import init as init_evidence, require_evidence
+        init_evidence(db)
+        program = json.loads(Path(args.policy).read_text()).get("program", "")
+        if not program or program == "REPLACE_WITH_AUTHORIZED_PROGRAM":
+            raise PolicyError("Real program identifier required for active mode")
+        for host in Path(args.targets).read_text().splitlines():
+            if host.strip() and not host.lstrip().startswith("#"):
+                require_evidence(db, host.strip(), policy, program)
     results = run(policy, Path(args.targets).read_text().splitlines(), args.active, db, args.approval_id)
     report = {"generated_at": datetime.now(timezone.utc).isoformat(),
               "mode": "approved_http" if args.active else "scope_only", "results": results}
